@@ -1,33 +1,13 @@
-# Chat Project, an optimized Chatbot
+1. Create a .env file in the project root.
 
-A conversational assistant designed to provide fast and accurate responses by combining instant answers for common questions with artificial intelligence for more complex requests.
+2. Add your Groq API key:
 
-## How it works
+GROQ_API_KEY=your_api_key_here
 
-The chatbot follows a hybrid architecture:
+3. Install dependencies:
 
-1. The user sends a message
-2. The system checks predefined rules
-3. If a rule matches, an instant response is returned
-4. Otherwise the message is sent to an AI model
-5. The AI response is returned to the user
+pip install -r requirements.txt
 
-## Features
+4. Run the script:
 
-- Fast responses for common questions
-- AI-powered answers for complex requests
-- Optimized response routing
-- Modular architecture
-
-## Tech Stack
-
-- Python
-- FastAPI
-- LLM API
-
-## Future Improvements
-
-Not sure yet but:
-- Local model integration
-- Conversation memory
-- Performance optimization
+python test.py
