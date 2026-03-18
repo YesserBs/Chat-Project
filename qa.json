@@ -1,0 +1,12 @@
+[
+    {"question": "Hi", "answer": "Hello! How can I help you today?"},
+    {"question": "Hello", "answer": "Hi there! What can I do for you?"},
+    {"question": "How are you?", "answer": "I'm doing well, thank you! How can I assist you today?"},
+    {"question": "What's your name?", "answer": "I'm an AI assistant here to help you."},
+    {"question": "Good morning", "answer": "Good morning! How can I assist you today?"},
+    {"question": "Good evening", "answer": "Good evening! What can I help you with?"},
+    {"question": "Thanks", "answer": "You're welcome! Let me know if you need anything else."},
+    {"question": "Thank you", "answer": "You're welcome! I'm here to help."},
+    {"question": "Bye", "answer": "Goodbye! Have a great day!"},
+    {"question": "See you later", "answer": "See you later! Take care."}
+]
