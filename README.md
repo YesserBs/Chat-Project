@@ -1,33 +1,5 @@
-# Chat Project, an optimized Chatbot
-
-A conversational assistant designed to provide fast and accurate responses by combining instant answers for common questions with artificial intelligence for more complex requests.
-
-## How it works
-
-The chatbot follows a hybrid architecture:
-
-1. The user sends a message
-2. The system checks predefined rules
-3. If a rule matches, an instant response is returned
-4. Otherwise the message is sent to an AI model
-5. The AI response is returned to the user
-
-## Features
-
-- Fast responses for common questions
-- AI-powered answers for complex requests
-- Optimized response routing
-- Modular architecture
-
-## Tech Stack
-
-- Python
-- FastAPI
-- LLM API
-
-## Future Improvements
-
-Not sure yet but:
-- Local model integration
-- Conversation memory
-- Performance optimization
+For the question & answer part :
+I think there are several cases to consider :
+1. The keywords are present : "Hi, Hello, yo, how are you .." etc + the phrase's length is small -> Here there are high chances it's just greeting
+2. also an other approach would be to calculate a score, wich might come to the same situation, but we wouldn't check if the words exist, we would rather have an index, a score for some words, and we would calculate the score of the question  based on the index
+3. or just semantic similarity and embedding 
