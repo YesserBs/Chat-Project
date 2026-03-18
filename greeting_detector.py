@@ -98,7 +98,7 @@ For overload protection, the safest rule is:
 
 Or equivalently:
 
-    if result.score >= 0.85:
+    if result.score >= THRESHOLD_ONLY_GREETING:
         short-circuit
 
 FastAPI example
@@ -130,7 +130,7 @@ Simple usage example
 result = detect_greeting("hello")
 print(result.label)            # ONLY_GREETING
 print(result.score)            # e.g. 0.93
-print(result.suggested_reply)  # "Hello, I'm here. How can I help you?"
+print(result.suggested_reply)  # "Hello! How can I help you?"
 
 json_result = detect_greeting_dict("bonjour")
 print(json_result["label"])
@@ -152,6 +152,64 @@ import re
 import unicodedata
 from dataclasses import asdict, dataclass
 from typing import Dict, List, Optional, Set
+
+
+# =============================================================================
+# SCORING CONSTANTS
+# =============================================================================
+# Tune these values to adjust the detector's sensitivity.
+# Higher thresholds = stricter (fewer false positives, more false negatives).
+# Lower thresholds = more tolerant (catches more greetings, may mis-classify).
+
+# --- Label thresholds --------------------------------------------------------
+# Score at or above this value -> ONLY_GREETING
+THRESHOLD_ONLY_GREETING: float = 0.75      # lowered from 0.85 for more tolerance
+# Score at or above this value -> LIKELY_GREETING
+THRESHOLD_LIKELY_GREETING: float = 0.55    # lowered from 0.65
+# Score at or above this value -> AMBIGUOUS
+THRESHOLD_AMBIGUOUS: float = 0.30          # lowered from 0.40
+# Below THRESHOLD_AMBIGUOUS   -> NOT_ONLY_GREETING
+
+# --- Short-circuit default threshold -----------------------------------------
+# Used by should_short_circuit() and get_short_circuit_response() as default.
+# Aligned with THRESHOLD_ONLY_GREETING so both APIs behave consistently.
+DEFAULT_SHORT_CIRCUIT_THRESHOLD: float = THRESHOLD_ONLY_GREETING
+
+# --- Suggested-reply threshold -----------------------------------------------
+# A local reply is only generated for strong, short greeting matches.
+THRESHOLD_SUGGESTED_REPLY: float = THRESHOLD_ONLY_GREETING
+
+# --- Base score bonuses -------------------------------------------------------
+SCORE_BASE_GREETING_PRESENCE: float = 0.45   # greeting token found at all
+SCORE_GREETING_AT_START: float = 0.18        # greeting is the first token
+SCORE_MULTIPLE_GREETINGS: float = 0.10       # 2+ greeting tokens
+SCORE_CLASSIC_PATTERN: float = 0.12         # e.g. "how are you", "ça va"
+
+# Length bonuses (message token count)
+SCORE_LENGTH_1: float = 0.30   # single token
+SCORE_LENGTH_2: float = 0.24   # two tokens
+SCORE_LENGTH_3: float = 0.18   # three tokens
+SCORE_LENGTH_4: float = 0.12   # four tokens
+SCORE_LENGTH_5: float = 0.02   # five tokens
+
+# Length penalties
+SCORE_LENGTH_6_PENALTY: float = 0.10   # six tokens (subtracted)
+SCORE_LENGTH_LONG_PENALTY: float = 0.35  # 7+ tokens (subtracted)
+
+# Soft-word and filler bonuses (per token, capped)
+SCORE_SOFT_WORD_PER_TOKEN: float = 0.04
+SCORE_SOFT_WORD_CAP: float = 0.08
+SCORE_FILLER_PER_TOKEN: float = 0.02
+SCORE_FILLER_CAP: float = 0.04
+
+# --- Penalties ----------------------------------------------------------------
+SCORE_REQUEST_MARKER_PER_TOKEN: float = 0.28   # per request marker found
+SCORE_REQUEST_MARKER_CAP: float = 0.70         # max total request penalty
+SCORE_CONTENT_MARKER_PER_TOKEN: float = 0.10   # per content marker (if n >= 3)
+SCORE_CONTENT_MARKER_CAP: float = 0.25         # max total content penalty
+SCORE_UNKNOWN_TOKEN_PER_TOKEN: float = 0.06    # per unrecognised token
+SCORE_UNKNOWN_TOKEN_CAP: float = 0.24          # max total unknown penalty
+SCORE_GREETING_BEFORE_REQUEST: float = 0.12   # greeting at pos 0 + request marker
 
 
 # =============================================================================
@@ -422,7 +480,7 @@ class GreetingDetector:
             normalized string
         """
         text = text.strip().lower()
-        text = text.replace("’", "'")
+        text = text.replace("'", "'")
         text = self.strip_accents(text)
 
         for src, dst in self.multi_word_map.items():
@@ -481,13 +539,13 @@ class GreetingDetector:
     # -------------------------------------------------------------------------
     def classify_label(self, score: float) -> str:
         """
-        Convert a score into a label.
+        Convert a score into a label using the module-level threshold constants.
         """
-        if score >= 0.85:
+        if score >= THRESHOLD_ONLY_GREETING:
             return self.ONLY_GREETING
-        if score >= 0.65:
+        if score >= THRESHOLD_LIKELY_GREETING:
             return self.LIKELY_GREETING
-        if score >= 0.40:
+        if score >= THRESHOLD_AMBIGUOUS:
             return self.AMBIGUOUS
         return self.NOT_ONLY_GREETING
 
@@ -498,8 +556,8 @@ class GreetingDetector:
         This is intentionally strict because this reply may be used to bypass
         a heavy downstream API call.
         """
-        if len(tokens) <= 2 and score >= 0.85:
-            return "Hello, I'm here. How can I help you?"
+        if len(tokens) <= 2 and score >= THRESHOLD_SUGGESTED_REPLY:
+            return "Hello! How can I help you?"
         return None
 
     # -------------------------------------------------------------------------
@@ -555,64 +613,64 @@ class GreetingDetector:
         score = 0.0
 
         # Core greeting presence
-        score += 0.45
+        score += SCORE_BASE_GREETING_PRESENCE
         reasons.append("contains greeting token")
 
         # Greeting starts the sentence
         if greeting_positions[0] == 0:
-            score += 0.18
+            score += SCORE_GREETING_AT_START
             reasons.append("greeting appears at start")
 
         # Multiple greeting tokens
         if greeting_count >= 2:
-            score += 0.10
+            score += SCORE_MULTIPLE_GREETINGS
             reasons.append("multiple greeting tokens")
 
         # Shorter texts are more likely to be pure greetings
         if n == 1:
-            score += 0.30
+            score += SCORE_LENGTH_1
             reasons.append("very short message")
         elif n == 2:
-            score += 0.24
+            score += SCORE_LENGTH_2
             reasons.append("short message")
         elif n == 3:
-            score += 0.18
+            score += SCORE_LENGTH_3
             reasons.append("compact message")
         elif n == 4:
-            score += 0.12
+            score += SCORE_LENGTH_4
         elif n == 5:
-            score += 0.02
+            score += SCORE_LENGTH_5
         elif n == 6:
-            score -= 0.10
+            score -= SCORE_LENGTH_6_PENALTY
             reasons.append("longer message reduces greeting confidence")
         else:
-            score -= 0.35
+            score -= SCORE_LENGTH_LONG_PENALTY
             reasons.append("message too long for a pure greeting")
 
         # Known classical greeting patterns
         if any(self.token_matches_vocab(token, self.classic_patterns) for token in tokens):
-            score += 0.12
+            score += SCORE_CLASSIC_PATTERN
             reasons.append("contains classic greeting pattern")
 
         # Soft / filler bonuses
         if soft_count > 0:
-            bonus = min(soft_count * 0.04, 0.08)
+            bonus = min(soft_count * SCORE_SOFT_WORD_PER_TOKEN, SCORE_SOFT_WORD_CAP)
             score += bonus
             reasons.append(f"soft-word bonus (+{bonus:.2f})")
 
         if filler_count > 0:
-            bonus = min(filler_count * 0.02, 0.04)
+            bonus = min(filler_count * SCORE_FILLER_PER_TOKEN, SCORE_FILLER_CAP)
             score += bonus
             reasons.append(f"filler bonus (+{bonus:.2f})")
 
         # Strong penalties for real intent
         if request_count > 0:
-            penalty = min(request_count * 0.28, 0.70)
+            penalty = min(request_count * SCORE_REQUEST_MARKER_PER_TOKEN, SCORE_REQUEST_MARKER_CAP)
             score -= penalty
             reasons.append(f"request-marker penalty (-{penalty:.2f})")
 
         if content_count > 0 and n >= 3:
-            penalty = min(content_count * 0.10, 0.25)
+            penalty = min(content_count * SCORE_CONTENT_MARKER_PER_TOKEN, SCORE_CONTENT_MARKER_CAP)
             score -= penalty
             reasons.append(f"content-marker penalty (-{penalty:.2f})")
 
@@ -621,13 +679,13 @@ class GreetingDetector:
         unknown = max(0, n - known)
 
         if unknown > 0:
-            penalty = min(unknown * 0.06, 0.24)
+            penalty = min(unknown * SCORE_UNKNOWN_TOKEN_PER_TOKEN, SCORE_UNKNOWN_TOKEN_CAP)
             score -= penalty
             reasons.append(f"unknown-token penalty (-{penalty:.2f})")
 
         # Greeting followed by request is suspicious
         if greeting_positions[0] == 0 and request_count > 0:
-            score -= 0.12
+            score -= SCORE_GREETING_BEFORE_REQUEST
             reasons.append("greeting followed by likely request")
 
         score = round(max(0.0, min(1.0, score)), 3)
@@ -697,7 +755,7 @@ def detect_greeting_dict(text: str) -> Dict[str, object]:
     return asdict(_DETECTOR.score_text(text))
 
 
-def should_short_circuit(text: str, threshold: float = 0.85) -> bool:
+def should_short_circuit(text: str, threshold: float = DEFAULT_SHORT_CIRCUIT_THRESHOLD) -> bool:
     """
     Decide whether the input should be handled locally as a pure greeting.
 
@@ -708,7 +766,8 @@ def should_short_circuit(text: str, threshold: float = 0.85) -> bool:
     Args:
         text: raw user input
         threshold: score threshold for short-circuiting.
-                   Default 0.85 matches ONLY_GREETING.
+                   Defaults to DEFAULT_SHORT_CIRCUIT_THRESHOLD
+                   (aligned with THRESHOLD_ONLY_GREETING).
 
     Returns:
         bool
@@ -719,7 +778,7 @@ def should_short_circuit(text: str, threshold: float = 0.85) -> bool:
 
 def get_short_circuit_response(
     text: str,
-    threshold: float = 0.85
+    threshold: float = DEFAULT_SHORT_CIRCUIT_THRESHOLD
 ) -> Optional[Dict[str, object]]:
     """
     Return a ready-to-send API payload if the message is a pure greeting.
@@ -729,7 +788,9 @@ def get_short_circuit_response(
 
     Args:
         text: raw user input
-        threshold: confidence threshold used to short-circuit
+        threshold: confidence threshold used to short-circuit.
+                   Defaults to DEFAULT_SHORT_CIRCUIT_THRESHOLD
+                   (aligned with THRESHOLD_ONLY_GREETING).
 
     Returns:
         dict | None
