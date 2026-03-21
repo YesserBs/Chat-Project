@@ -96,8 +96,10 @@
   }
   .btn-primary:hover { opacity: .88; }
   .btn-primary:active { transform: scale(.98); }
+  .btn-primary:disabled { opacity: .4; cursor: not-allowed; }
 
   .login-hint { font-size: 11.5px; color: var(--muted); text-align: center; }
+  .login-error { font-size: 12px; color: #f87171; text-align: center; display: none; }
 
   /* ── SIDEBAR ── */
   #sidebar {
@@ -384,6 +386,7 @@
       <label>Mot de passe</label>
       <input id="login-pass" type="password" placeholder="••••••••">
     </div>
+    <div class="login-error" id="login-error">Email et mot de passe requis.</div>
     <button class="btn-primary" id="login-btn">Se connecter</button>
     <p class="login-hint">MVP — n'importe quel email / mot de passe fonctionne</p>
   </div>
@@ -412,7 +415,7 @@
   <div id="chat-header">
     <div class="bot-indicator"></div>
     <span>Assistant IA</span>
-    <span class="model-tag">claude-sonnet-4</span>
+    <span class="model-tag">Yesserz</span>
   </div>
 
   <div id="messages">
@@ -433,6 +436,9 @@
 </div>
 
 <script>
+// ── Config ──
+const API_BASE = 'http://localhost:8000';  // URL de votre backend FastAPI
+
 const CONVERSATIONS = {};
 let currentId = null;
 let currentUser = null;
@@ -441,26 +447,60 @@ let currentUser = null;
 document.getElementById('login-btn').addEventListener('click', login);
 document.getElementById('login-pass').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
 
-function login() {
+async function login() {
   const email = document.getElementById('login-email').value.trim();
   const pass = document.getElementById('login-pass').value.trim();
-  if (!email || !pass) { shake(document.querySelector('.login-card')); return; }
-  currentUser = email;
-  document.getElementById('login-screen').style.opacity = '0';
-  document.getElementById('login-screen').style.transition = 'opacity .3s';
-  setTimeout(() => document.getElementById('login-screen').style.display = 'none', 300);
-  const initial = email[0].toUpperCase();
-  document.getElementById('user-avatar').textContent = initial;
-  document.getElementById('user-display').textContent = email.split('@')[0];
-  createConversation();
+  const errEl = document.getElementById('login-error');
+  const btn = document.getElementById('login-btn');
+
+  errEl.style.display = 'none';
+
+  if (!email || !pass) {
+    errEl.textContent = 'Email et mot de passe requis.';
+    errEl.style.display = 'block';
+    shake(document.querySelector('.login-card'));
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Connexion…';
+
+  try {
+    const res = await fetch(`${API_BASE}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password: pass })
+    });
+
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.detail || 'Erreur de connexion');
+    }
+
+    const data = await res.json();
+    currentUser = data.username;
+
+    document.getElementById('login-screen').style.opacity = '0';
+    document.getElementById('login-screen').style.transition = 'opacity .3s';
+    setTimeout(() => document.getElementById('login-screen').style.display = 'none', 300);
+
+    document.getElementById('user-avatar').textContent = currentUser[0].toUpperCase();
+    document.getElementById('user-display').textContent = currentUser;
+    createConversation();
+
+  } catch (err) {
+    errEl.textContent = err.message;
+    errEl.style.display = 'block';
+    shake(document.querySelector('.login-card'));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Se connecter';
+  }
 }
 
-document.getElementById('logout-btn').addEventListener('click', () => {
-  location.reload();
-});
+document.getElementById('logout-btn').addEventListener('click', () => location.reload());
 
 function shake(el) {
-  el.style.animation = 'none';
   el.style.transition = 'transform .07s';
   let i = 0;
   const moves = [6, -6, 5, -5, 3, -3, 0];
@@ -522,9 +562,11 @@ function renderMessages() {
 function buildBubble(role, content) {
   const isUser = role === 'user';
   const avatarContent = isUser ? (currentUser ? currentUser[0].toUpperCase() : 'U') : '✦';
-  return `<div class="msg-row ${role}">
-    <div class="msg-avatar ${role}">${avatarContent}</div>
-    <div class="bubble ${role}">${esc(content).replace(/\n/g, '<br>')}</div>
+  // Normalise "assistant" → affichage "bot"
+  const displayRole = isUser ? 'user' : 'bot';
+  return `<div class="msg-row ${displayRole}">
+    <div class="msg-avatar ${displayRole}">${avatarContent}</div>
+    <div class="bubble ${displayRole}">${esc(content).replace(/\n/g, '<br>')}</div>
   </div>`;
 }
 
@@ -577,7 +619,6 @@ async function send() {
   input.style.height = 'auto';
   sendBtn.disabled = true;
 
-  // first message → set title
   if (conv.messages.length === 0) {
     conv.title = text.length > 38 ? text.slice(0, 38) + '…' : text;
     renderSidebar();
@@ -588,30 +629,32 @@ async function send() {
   showTyping();
 
   try {
+    // On envoie uniquement user/assistant (pas "bot") au backend
     const history = conv.messages.map(m => ({ role: m.role, content: m.content }));
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+
+    const res = await fetch(`${API_BASE}/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 1000,
-        system: 'Tu es un assistant IA utile et concis. Réponds en français sauf si l\'utilisateur écrit dans une autre langue.',
-        messages: history
-      })
+      body: JSON.stringify({ messages: history })
     });
+
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.detail || 'Erreur serveur');
+    }
 
     const data = await res.json();
     removeTyping();
 
-    const reply = data.content?.map(b => b.text || '').join('') || 'Désolé, une erreur est survenue.';
-    conv.messages.push({ role: 'assistant', content: reply });
-    appendBubble('bot', reply);
+    // Stocké comme "assistant" pour l'API, affiché comme "bot" côté UI
+    conv.messages.push({ role: 'assistant', content: data.reply });
+    appendBubble('assistant', data.reply);
 
   } catch (err) {
     removeTyping();
-    const errMsg = 'Erreur de connexion à l\'API.';
+    const errMsg = `Erreur : ${err.message}`;
     conv.messages.push({ role: 'assistant', content: errMsg });
-    appendBubble('bot', errMsg);
+    appendBubble('assistant', errMsg);
   }
 
   sendBtn.disabled = false;
