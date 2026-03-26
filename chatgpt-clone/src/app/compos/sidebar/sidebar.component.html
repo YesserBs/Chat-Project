@@ -1,0 +1,32 @@
+<div class="layout">
+  <!-- Sidebar -->
+  <aside class="sidebar" [class.closed]="!isSidebarOpen">
+    <div class="sidebar-header">
+      <button class="toggle-btn" (click)="toggleSidebar()">
+        ☰
+      </button>
+      <span class="logo-text" *ngIf="isSidebarOpen">My Space</span>
+    </div>
+
+    <nav class="sidebar-menu" *ngIf="isSidebarOpen">
+      <a href="#">Home</a>
+      <a href="#">Messages</a>
+      <a href="#">History</a>
+      <a href="#">Settings</a>
+    </nav>
+  </aside>
+
+  <!-- Main area -->
+  <div class="main-container" [class.expanded]="!isSidebarOpen">
+    <header class="topbar">
+      <button class="toggle-btn mobile-btn" (click)="toggleSidebar()">
+        ☰
+      </button>
+      <h1>Main Content</h1>
+    </header>
+
+    <main class="content">
+      <p>Main content here</p>
+    </main>
+  </div>
+</div>
